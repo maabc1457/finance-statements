@@ -28,8 +28,11 @@ SECRET_KEY = os.environ.get(
 )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-# On Render, set DJANGO_DEBUG=False; local runs keep DEBUG=True by default.
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
+# Hardcoded off everywhere (not env-driven) - this also means local
+# `runserver` now behaves like production: SECURE_SSL_REDIRECT below will
+# redirect plain http://127.0.0.1 requests to https, which runserver can't
+# serve, and `{% static %}` requires `collectstatic` to have been run.
+DEBUG = False
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
