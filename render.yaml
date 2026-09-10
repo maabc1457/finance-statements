@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: financial-statement-flow-tool
+    runtime: python
+    rootDir: financial-statements
+    plan: free
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate"
+    startCommand: "gunicorn financial_statement_comparisons.wsgi:application"
+    envVars:
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: "3.13.0"

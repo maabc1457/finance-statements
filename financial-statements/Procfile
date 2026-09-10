@@ -1,0 +1,1 @@
+web: gunicorn financial_statement_comparisons.wsgi:application
