@@ -212,6 +212,7 @@
     });
     el.addEventListener('change', () => {
       if (animating) return;
+      if (window.posthog) posthog.capture('lever_changed', { lever: key, value: levers[key], mode });
       runFlow(computeStatements(base, levers));
     });
   }
@@ -223,6 +224,7 @@
 
   document.getElementById('mode-switch').addEventListener('change', (e) => {
     setMode(e.target.checked ? 'learn' : 'update');
+    if (window.posthog) posthog.capture('mode_toggled', { mode });
   });
 
   // Pin the caption's width to exactly the toggle row's rendered width, so
