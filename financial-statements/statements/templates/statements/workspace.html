@@ -57,6 +57,30 @@
   .control .ticks{display:flex;justify-content:space-between;font-size:9px;color:#AEB3D0;}
   .control .eff-config{font-size:9.5px;color:#AEB3D0;margin-top:1px;}
 
+  /* (i) button beside a lever name that opens a short "how this works" note */
+  .control.has-info{position:relative;}
+  .control .label-text{display:inline-flex;align-items:center;gap:5px;}
+  .info-btn{
+    width:14px;height:14px;padding:0;border-radius:50%;
+    border:1px solid rgba(255,255,255,.55);background:transparent;color:#fff;
+    font:600 9px/1 'Inter',sans-serif;font-style:italic;cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;
+  }
+  .info-btn:hover,.info-btn[aria-expanded="true"]{background:#fff;color:var(--royal);}
+  .info-btn:focus-visible{outline:2px solid #fff;outline-offset:2px;}
+  .info-pop{
+    position:absolute;top:22px;left:0;z-index:20;width:290px;max-width:calc(100vw - 32px);
+    background:#fff;color:var(--gray-text);border-radius:6px;border-top:3px solid var(--royal);
+    box-shadow:0 10px 28px rgba(0,0,0,.45);padding:12px 14px;
+    font-size:11.5px;line-height:1.5;font-weight:400;white-space:normal;
+  }
+  .info-pop strong{color:var(--royal);}
+  .info-pop p{margin:0 0 7px;}
+  .info-pop p:last-child{margin-bottom:0;}
+  .info-pop .formula{
+    font-variant-numeric:tabular-nums;background:#EEF1FB;border-radius:4px;padding:5px 8px;
+  }
+
   .mode-box{display:flex;flex-direction:column;align-items:center;gap:6px;}
   .mode-toggle{display:flex;align-items:center;justify-content:center;gap:8px;font-size:10.5px;}
   .mode-caption{
@@ -90,6 +114,8 @@
   .stmt-card{background:var(--gray-card);color:var(--gray-text);border-radius:4px;padding:16px 18px;border-left:3px solid var(--royal);}
   .row{display:flex;justify-content:space-between;gap:8px;padding:6px 0;font-size:12.5px;border-bottom:1px solid var(--gray-line);}
   .row:last-child{border-bottom:none;}
+  .row .sub-label{font-size:10.5px;color:#6D7089;}
+  .row.indent > span:first-child{padding-left:12px;}
   .row.total{font-weight:600;border-top:1.5px solid #9DA0AE;margin-top:4px;padding-top:8px;}
 
   .row-value{display:flex;align-items:center;gap:6px;}
@@ -135,6 +161,7 @@
       <h1>Statement Flow Workspace</h1>
       <div class="title-meta">
         <span class="tax-rate">Tax rate: {{ tax_rate_pct }}%</span>
+        <span class="tax-rate">Interest rate: {{ interest_rate_pct }}% on long-term debt</span>
       </div>
     </div>
 
@@ -147,9 +174,22 @@
         <label>CapEx <span class="val" id="capex-val">${{ levers.capex|floatformat:0|intcomma }}</span></label>
         <input type="range" id="capex-lever" min="0" max="100000" step="1000" value="{{ levers.capex }}">
       </div>
+      <div class="control has-info">
+        <label><span class="label-text">Useful Life <button type="button" class="info-btn" id="useful-life-info-btn" aria-label="How useful life works" aria-expanded="false" aria-controls="useful-life-info">i</button></span> <span class="val" id="useful-life-val">{{ levers.useful_life }} yrs</span></label>
+        <div class="info-pop" id="useful-life-info" role="dialog" aria-label="How useful life works" hidden>
+          <p><strong>Changing the useful life recalibrates the depreciation schedule from this year forward</strong>, and the statements show <strong>this year's charge</strong>. Depreciation already recorded in past years isn't restated.</p>
+          <p class="formula">Depreciation = (Opening PP&amp;E + this year's CapEx) &divide; Useful life<br>
+            <span id="useful-life-info-example">= (${{ base_gross_ppe|floatformat:0|intcomma }} + ${{ levers.capex|floatformat:0|intcomma }}) &divide; {{ levers.useful_life }} yrs = ${{ statements.income_statement.depreciation|floatformat:0|intcomma }} per year</span></p>
+          <p>It's straight-line, so every future year carries the same charge until Net PP&amp;E reaches zero. The "lasts &asymp; X more years" note under Net PP&amp;E is Net PP&amp;E &divide; this year's charge.</p>
+          <p id="useful-life-info-gap">Why it's less than {{ statements.income_statement.useful_life }} &minus; 1: the ${{ base_accum_dep|floatformat:0|intcomma }} of prior-year depreciation has already used up ${{ base_accum_dep|floatformat:0|intcomma }} &divide; ${{ statements.income_statement.depreciation|floatformat:0|intcomma }} &asymp; {{ prior_years_used|floatformat:1 }} years of book value.</p>
+          <p>Shorter life = bigger charge each year, lower net income. Accumulated depreciation keeps the past years' total and adds only this year's charge.</p>
+        </div>
+        <input type="range" id="useful-life-lever" min="5" max="25" step="1" value="{{ levers.useful_life }}">
+        <div class="ticks"><span>5 yrs &middot; faster</span><span>25 yrs &middot; slower</span></div>
+      </div>
       <div class="control">
-        <label>Depreciation <span class="val" id="depreciation-val">${{ levers.depreciation|floatformat:0|intcomma }}</span></label>
-        <input type="range" id="depreciation-lever" min="0" max="50000" step="1000" value="{{ levers.depreciation }}">
+        <label>Long-Term Debt <span class="val" id="debt-val">${{ levers.debt|floatformat:0|intcomma }}</span></label>
+        <input type="range" id="debt-lever" min="0" max="300000" step="5000" value="{{ levers.debt }}">
       </div>
       <div class="control">
         <label>Efficiency <span class="val" id="efficiency-val">{{ current_efficiency.label }}</span></label>
@@ -183,7 +223,9 @@
         <div class="row"><span>Gross profit</span><span class="row-value"><span class="delta-badge" data-badge-for="is_gross_profit"></span><span class="num" data-field="is_gross_profit">{{ statements.income_statement.gross_profit|floatformat:0|intcomma }}</span></span></div>
         <div class="row"><span>Operating expenses</span><span class="row-value"><span class="delta-badge" data-badge-for="is_opex"></span><span class="num" data-field="is_opex">&minus;{{ statements.income_statement.opex|floatformat:0|intcomma }}</span></span></div>
         <div class="row"><span>Operating income</span><span class="row-value"><span class="delta-badge" data-badge-for="is_operating_income"></span><span class="num" data-field="is_operating_income">{{ statements.income_statement.operating_income|floatformat:0|intcomma }}</span></span></div>
-        <div class="row"><span data-label-for="is_depreciation">Depreciation</span><span class="row-value"><span class="delta-badge" data-badge-for="is_depreciation"></span><span class="num" data-field="is_depreciation">&minus;{{ statements.income_statement.depreciation|floatformat:0|intcomma }}</span></span></div>
+        <div class="row"><span><span data-label-for="is_depreciation">Depreciation</span> <span class="sub-label" id="depreciation-basis">(${{ statements.balance_sheet.gross_ppe|floatformat:0|intcomma }} gross PP&amp;E &divide; {{ statements.income_statement.useful_life }} yrs, same every year)</span></span><span class="row-value"><span class="delta-badge" data-badge-for="is_depreciation"></span><span class="num" data-field="is_depreciation">&minus;{{ statements.income_statement.depreciation|floatformat:0|intcomma }}</span></span></div>
+        <div class="row"><span>EBIT</span><span class="row-value"><span class="delta-badge" data-badge-for="is_ebit"></span><span class="num" data-field="is_ebit">{{ statements.income_statement.ebit|floatformat:0|intcomma }}</span></span></div>
+        <div class="row"><span>Interest expense <span class="sub-label" id="interest-basis">({{ interest_rate_pct }}% &times; ${{ statements.balance_sheet.long_term_debt|floatformat:0|intcomma }} debt)</span></span><span class="row-value"><span class="delta-badge" data-badge-for="is_interest"></span><span class="num" data-field="is_interest">&minus;{{ statements.income_statement.interest|floatformat:0|intcomma }}</span></span></div>
         <div class="row"><span>EBT</span><span class="row-value"><span class="delta-badge" data-badge-for="is_ebt"></span><span class="num" data-field="is_ebt">{{ statements.income_statement.ebt|floatformat:0|intcomma }}</span></span></div>
         <div class="row"><span>Tax</span><span class="row-value"><span class="delta-badge" data-badge-for="is_tax"></span><span class="num" data-field="is_tax">&minus;{{ statements.income_statement.tax|floatformat:0|intcomma }}</span></span></div>
         <div class="row total"><span data-label-for="is_net_income">Net income</span><span class="row-value"><span class="delta-badge" data-badge-for="is_net_income"></span><span class="num" data-field="is_net_income">{{ statements.income_statement.net_income|floatformat:0|intcomma }}</span></span></div>
@@ -196,8 +238,10 @@
         <div class="row"><span data-label-for="cf_net_income">Net income</span><span class="row-value"><span class="delta-badge" data-badge-for="cf_net_income"></span><span class="num" data-field="cf_net_income">{{ statements.cash_flow.net_income|floatformat:0|intcomma }}</span></span></div>
         <div class="row"><span data-label-for="cf_depreciation_addback">Depreciation add-back</span><span class="row-value"><span class="delta-badge" data-badge-for="cf_depreciation_addback"></span><span class="num" data-field="cf_depreciation_addback">+{{ statements.cash_flow.depreciation_addback|floatformat:0|intcomma }}</span></span></div>
         <div class="row"><span>Cash flow from operations</span><span class="row-value"><span class="delta-badge" data-badge-for="cf_cfo"></span><span class="num" data-field="cf_cfo">{{ statements.cash_flow.cfo|floatformat:0|intcomma }}</span></span></div>
-        <div class="row"><span>CapEx (investing)</span><span class="row-value"><span class="delta-badge" data-badge-for="cf_cfi"></span><span class="num" data-field="cf_cfi">&minus;{{ statements.cash_flow.capex|floatformat:0|intcomma }}</span></span></div>
-        <div class="row"><span>Dividends (financing)</span><span class="row-value"><span class="delta-badge" data-badge-for="cf_cff"></span><span class="num" data-field="cf_cff">&minus;{{ statements.cash_flow.dividends|floatformat:0|intcomma }}</span></span></div>
+        <div class="row"><span data-label-for="cf_cfi">CapEx (investing)</span><span class="row-value"><span class="delta-badge" data-badge-for="cf_cfi"></span><span class="num" data-field="cf_cfi">&minus;{{ statements.cash_flow.capex|floatformat:0|intcomma }}</span></span></div>
+        <div class="row"><span data-label-for="cf_debt_change">Debt issued / (repaid)</span><span class="row-value"><span class="delta-badge" data-badge-for="cf_debt_change"></span><span class="num" data-field="cf_debt_change">{{ statements.cash_flow.debt_change|floatformat:0|intcomma }}</span></span></div>
+        <div class="row"><span>Dividends paid</span><span class="row-value"><span class="delta-badge" data-badge-for="cf_dividends"></span><span class="num" data-field="cf_dividends">&minus;{{ statements.cash_flow.dividends|floatformat:0|intcomma }}</span></span></div>
+        <div class="row"><span>Cash flow from financing</span><span class="row-value"><span class="delta-badge" data-badge-for="cf_cff"></span><span class="num" data-field="cf_cff">{{ statements.cash_flow.cff|floatformat:0|intcomma }}</span></span></div>
         <div class="row total"><span>Net change in cash</span><span class="row-value"><span class="delta-badge" data-badge-for="cf_net_change"></span><span class="num" data-field="cf_net_change">{{ statements.cash_flow.net_change_in_cash|floatformat:0|intcomma }}</span></span></div>
         <div class="row"><span>Cash, beginning of year</span><span class="row-value"><span class="delta-badge" data-badge-for="cf_cash_boy"></span><span class="num" data-field="cf_cash_boy">{{ statements.cash_flow.cash_boy|floatformat:0|intcomma }}</span></span></div>
         <div class="row total"><span data-label-for="cf_cash_eoy">Cash, end of year</span><span class="row-value"><span class="delta-badge" data-badge-for="cf_cash_eoy"></span><span class="num" data-field="cf_cash_eoy">{{ statements.cash_flow.cash_eoy|floatformat:0|intcomma }}</span></span></div>
@@ -209,9 +253,12 @@
       <div class="stmt-card">
         <div class="row"><span data-label-for="bs_cash">Cash and equivalents</span><span class="row-value"><span class="delta-badge" data-badge-for="bs_cash"></span><span class="num" data-field="bs_cash">{{ statements.balance_sheet.cash|floatformat:0|intcomma }}</span></span></div>
         <div class="row"><span>Receivables and inventory</span><span class="row-value"><span class="delta-badge" data-badge-for="bs_receivables_inventory"></span><span class="num" data-field="bs_receivables_inventory">{{ statements.balance_sheet.receivables_inventory|floatformat:0|intcomma }}</span></span></div>
-        <div class="row"><span data-label-for="bs_net_ppe">Net PP&amp;E</span><span class="row-value"><span class="delta-badge" data-badge-for="bs_net_ppe"></span><span class="num" data-field="bs_net_ppe">{{ statements.balance_sheet.net_ppe|floatformat:0|intcomma }}</span></span></div>
+        <div class="row"><span data-label-for="bs_gross_ppe">Gross PP&amp;E</span><span class="row-value"><span class="delta-badge" data-badge-for="bs_gross_ppe"></span><span class="num" data-field="bs_gross_ppe">{{ statements.balance_sheet.gross_ppe|floatformat:0|intcomma }}</span></span></div>
+        <div class="row indent"><span><span data-label-for="bs_accum_dep">Less: accumulated depreciation</span> <span class="sub-label" id="accum-dep-basis">(${{ base_accum_dep|floatformat:0|intcomma }} prior years, fixed + ${{ statements.income_statement.depreciation|floatformat:0|intcomma }} this year)</span></span><span class="row-value"><span class="delta-badge" data-badge-for="bs_accum_dep"></span><span class="num" data-field="bs_accum_dep">&minus;{{ statements.balance_sheet.accum_dep|floatformat:0|intcomma }}</span></span></div>
+        <div class="row"><span><span data-label-for="bs_net_ppe">Net PP&amp;E</span><br><span class="sub-label" id="remaining-life">At this year's charge, Net PP&amp;E lasts &asymp; {{ statements.balance_sheet.remaining_life|floatformat:1 }} more years</span></span><span class="row-value"><span class="delta-badge" data-badge-for="bs_net_ppe"></span><span class="num" data-field="bs_net_ppe">{{ statements.balance_sheet.net_ppe|floatformat:0|intcomma }}</span></span></div>
         <div class="row total"><span>Total assets</span><span class="row-value"><span class="delta-badge" data-badge-for="bs_total_assets"></span><span class="num" data-field="bs_total_assets">{{ statements.balance_sheet.total_assets|floatformat:0|intcomma }}</span></span></div>
-        <div class="row"><span>Total liabilities</span><span class="row-value"><span class="delta-badge" data-badge-for="bs_liabilities"></span><span class="num" data-field="bs_liabilities">{{ statements.balance_sheet.liabilities|floatformat:0|intcomma }}</span></span></div>
+        <div class="row"><span data-label-for="bs_long_term_debt">Long-term debt</span><span class="row-value"><span class="delta-badge" data-badge-for="bs_long_term_debt"></span><span class="num" data-field="bs_long_term_debt">{{ statements.balance_sheet.long_term_debt|floatformat:0|intcomma }}</span></span></div>
+        <div class="row total"><span>Total liabilities</span><span class="row-value"><span class="delta-badge" data-badge-for="bs_total_liabilities"></span><span class="num" data-field="bs_total_liabilities">{{ statements.balance_sheet.total_liabilities|floatformat:0|intcomma }}</span></span></div>
         <div class="row"><span>Common stock</span><span class="row-value"><span class="delta-badge" data-badge-for="bs_common_stock"></span><span class="num" data-field="bs_common_stock">{{ statements.balance_sheet.common_stock|floatformat:0|intcomma }}</span></span></div>
         <div class="row"><span data-label-for="bs_retained_earnings">Retained earnings</span><span class="row-value"><span class="delta-badge" data-badge-for="bs_retained_earnings"></span><span class="num" data-field="bs_retained_earnings">{{ statements.balance_sheet.retained_earnings|floatformat:0|intcomma }}</span></span></div>
         <div class="row total"><span>Total liabilities &amp; equity</span><span class="row-value"><span class="delta-badge" data-badge-for="bs_total_liab_equity"></span><span class="num" data-field="bs_total_liab_equity">{{ statements.balance_sheet.total_liab_and_equity|floatformat:0|intcomma }}</span></span></div>

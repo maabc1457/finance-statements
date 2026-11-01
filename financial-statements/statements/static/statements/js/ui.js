@@ -8,13 +8,19 @@
 
 (function () {
   // These are always non-negative magnitudes by construction (a % of
-  // revenue, or a lever whose slider bottoms out at 0), so they're always
-  // shown as a flat outflow/inflow regardless of what else changed.
-  const ALWAYS_NEGATIVE = new Set(['is_cogs', 'is_opex', 'is_depreciation', 'cf_cfi', 'cf_cff']);
+  // revenue, a % of debt, or a lever whose slider bottoms out at 0), so
+  // they're always shown as a flat outflow/inflow regardless of what else
+  // changed.
+  const ALWAYS_NEGATIVE = new Set(['is_cogs', 'is_opex', 'is_depreciation', 'is_interest', 'cf_cfi', 'cf_dividends', 'bs_accum_dep']);
   const ALWAYS_POSITIVE = new Set(['cf_depreciation_addback']);
 
+  // Debt issued/(repaid) can go either way depending on whether the Debt
+  // lever sits above or below the opening balance, so it always carries an
+  // explicit + (cash in) or - (cash out).
+  const EXPLICIT_SIGN = new Set(['cf_debt_change']);
+
   // Tax is the exception: it's EBT * 25%, and EBT can go negative (heavy
-  // Depreciation against a small Operating Income), which flips Tax into a
+  // Depreciation + Interest against a small Operating Income), which flips Tax into a
   // benefit. It's still always "the amount separating EBT from Net Income",
   // so it displays as subtracted (-) when positive and added back (+) when
   // negative, rather than a fixed sign.
@@ -59,15 +65,17 @@
 
   // Fields whose value is literally the same figure landing on another
   // statement (per the accounting flow: Net Income -> CFO / Retained
-  // Earnings, Depreciation -> non-cash add-back / Net PP&E, ending Cash ->
-  // Balance Sheet Cash). When one of these reveals, its source line item's
+  // Earnings, Depreciation -> non-cash add-back / Accumulated Depreciation,
+  // CapEx -> Gross PP&E, ending Cash -> Balance Sheet Cash). When one of these reveals, its source line item's
   // title pops at the same time so the cross-statement link is obvious.
   const CROSS_STATEMENT_LINKS = {
     cf_net_income: 'is_net_income',
     cf_depreciation_addback: 'is_depreciation',
     bs_cash: 'cf_cash_eoy',
     bs_retained_earnings: 'is_net_income',
-    bs_net_ppe: 'is_depreciation',
+    bs_gross_ppe: 'cf_cfi',
+    bs_accum_dep: 'is_depreciation',
+    bs_long_term_debt: 'cf_debt_change',
   };
 
   function jumpLabel(field) {
@@ -83,11 +91,11 @@
   // (which lands on both of those).
   const FLOW_ORDER = [
     'is_revenue', 'is_cogs', 'is_gross_profit', 'is_opex', 'is_operating_income',
-    'is_depreciation', 'is_ebt', 'is_tax', 'is_net_income',
-    'cf_net_income', 'cf_depreciation_addback', 'cf_cfo', 'cf_cfi', 'cf_cff',
+    'is_depreciation', 'is_ebit', 'is_interest', 'is_ebt', 'is_tax', 'is_net_income',
+    'cf_net_income', 'cf_depreciation_addback', 'cf_cfo', 'cf_cfi', 'cf_debt_change', 'cf_dividends', 'cf_cff',
     'cf_net_change', 'cf_cash_boy', 'cf_cash_eoy',
-    'bs_cash', 'bs_receivables_inventory', 'bs_net_ppe', 'bs_total_assets',
-    'bs_liabilities', 'bs_common_stock', 'bs_retained_earnings', 'bs_total_liab_equity',
+    'bs_cash', 'bs_receivables_inventory', 'bs_gross_ppe', 'bs_accum_dep', 'bs_net_ppe', 'bs_total_assets',
+    'bs_long_term_debt', 'bs_total_liabilities', 'bs_common_stock', 'bs_retained_earnings', 'bs_total_liab_equity',
   ];
 
   const base = window.STATEMENT_BASE;
@@ -109,7 +117,8 @@
   function setLeverLabels() {
     document.getElementById('revenue-val').textContent = '$' + formatMoney(levers.revenue);
     document.getElementById('capex-val').textContent = '$' + formatMoney(levers.capex);
-    document.getElementById('depreciation-val').textContent = '$' + formatMoney(levers.depreciation);
+    document.getElementById('useful-life-val').textContent = levers.useful_life + ' yrs';
+    document.getElementById('debt-val').textContent = '$' + formatMoney(levers.debt);
 
     const eff = EFFICIENCY_TABLE[levers.efficiency];
     document.getElementById('efficiency-val').textContent = eff.label;
@@ -126,6 +135,8 @@
       text = '−' + formatMoney(Math.abs(value));
     } else if (ALWAYS_POSITIVE.has(field)) {
       text = '+' + formatMoney(Math.abs(value));
+    } else if (EXPLICIT_SIGN.has(field)) {
+      text = (value > 0 ? '+' : value < 0 ? '−' : '') + formatMoney(Math.abs(value));
     } else if (SUBTRACTED_DYNAMIC.has(field)) {
       text = (value >= 0 ? '−' : '+') + formatMoney(Math.abs(value));
     } else {
@@ -135,6 +146,36 @@
       text = (value < 0 ? '−' : '') + formatMoney(Math.abs(value));
     }
     el.textContent = text;
+
+    // The "(6% x $debt)" note beside Interest expense updates together with
+    // the interest figure itself, not while the slider is still being dragged.
+    if (field === 'is_interest') {
+      document.getElementById('interest-basis').textContent =
+        '(' + Math.round(INTEREST_RATE * 100) + '% × $' + formatMoney(result.bs_long_term_debt) + ' debt)';
+    }
+
+    // Same idea for the straight-line notes: how this year's Depreciation was
+    // worked out, and how many years of it the remaining Net PP&E covers.
+    if (field === 'is_depreciation') {
+      document.getElementById('depreciation-basis').textContent =
+        '($' + formatMoney(result.bs_gross_ppe) + ' gross PP&E ÷ ' + result.is_useful_life + ' yrs, same every year)';
+      document.getElementById('useful-life-info-example').textContent =
+        '= ($' + formatMoney(base.gross_ppe_boy) + ' + $' + formatMoney(result.cf_cfi) + ') ÷ ' +
+        result.is_useful_life + ' yrs = $' + formatMoney(result.is_depreciation) + ' per year';
+      document.getElementById('useful-life-info-gap').textContent =
+        "Why it's less than " + result.is_useful_life + ' − 1: the $' + formatMoney(base.accum_dep_boy) +
+        ' of prior-year depreciation has already used up $' + formatMoney(base.accum_dep_boy) + ' ÷ $' +
+        formatMoney(result.is_depreciation) + ' ≈ ' + (base.accum_dep_boy / result.is_depreciation).toFixed(1) +
+        ' years of book value.';
+    }
+    if (field === 'bs_accum_dep') {
+      document.getElementById('accum-dep-basis').textContent =
+        '($' + formatMoney(base.accum_dep_boy) + ' prior years, fixed + $' + formatMoney(result.is_depreciation) + ' this year)';
+    }
+    if (field === 'bs_net_ppe') {
+      document.getElementById('remaining-life').textContent =
+        "At this year's charge, Net PP&E lasts ≈ " + result.bs_remaining_life.toFixed(1) + ' more years';
+    }
   }
 
   function paintAll(result) {
@@ -147,7 +188,32 @@
     document.getElementById('controls').classList.toggle('locked', locked);
     document.getElementById('flow-indicator').hidden = !locked;
     document.getElementById('mode-switch').disabled = locked;
+    if (locked) setUsefulLifeInfo(false);
   }
+
+  // (i) note beside Useful Life: toggles on click, closes on Escape or a
+  // click anywhere else, and is closed while a change is playing out.
+  const infoBtn = document.getElementById('useful-life-info-btn');
+  const infoPop = document.getElementById('useful-life-info');
+
+  function setUsefulLifeInfo(open) {
+    infoPop.hidden = !open;
+    infoBtn.setAttribute('aria-expanded', String(open));
+  }
+
+  infoBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    setUsefulLifeInfo(infoPop.hidden);
+  });
+  document.addEventListener('click', (e) => {
+    if (!infoPop.hidden && !infoPop.contains(e.target) && e.target !== infoBtn) setUsefulLifeInfo(false);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !infoPop.hidden) {
+      setUsefulLifeInfo(false);
+      infoBtn.focus();
+    }
+  });
 
   function revealField(field, oldResult, newResult, changedSet) {
     const numEl = document.querySelector('[data-field="' + field + '"]');
@@ -219,8 +285,9 @@
 
   bind('revenue-lever', 'revenue');
   bind('capex-lever', 'capex');
-  bind('depreciation-lever', 'depreciation');
+  bind('useful-life-lever', 'useful_life');
   bind('efficiency-lever', 'efficiency');
+  bind('debt-lever', 'debt');
 
   document.getElementById('mode-switch').addEventListener('change', (e) => {
     setMode(e.target.checked ? 'learn' : 'update');

@@ -27,27 +27,34 @@ EFFICIENCY_TABLE = {
 
 TAX_RATE = 0.25
 
+# Charged on the year-end Long-Term Debt balance (the Debt lever). Any
+# borrowing/repayment is treated as happening at the start of the year, so
+# the new balance carries a full year of interest.
+INTEREST_RATE = 0.06
+
 # Beginning-of-year balance sheet. Fixed - only the levers below change year-end results.
+# Long-Term Debt is the company's only liability.
 BASE = {
     'cash_boy': 50000,
     'receivables_inventory': 30000,
     'gross_ppe_boy': 200000,
     'accum_dep_boy': 60000,
-    'liabilities': 90000,
+    'long_term_debt_boy': 90000,
     'common_stock': 60000,
     'dividends': 10000,
 }
 BASE['retained_earnings_boy'] = (
     BASE['cash_boy'] + BASE['receivables_inventory']
     + (BASE['gross_ppe_boy'] - BASE['accum_dep_boy'])
-    - BASE['liabilities'] - BASE['common_stock']
+    - BASE['long_term_debt_boy'] - BASE['common_stock']
 )
 
 DEFAULT_LEVERS = {
     'revenue': 150000,
     'capex': 20000,
-    'depreciation': 15000,
+    'useful_life': 15,
     'efficiency': 2,
+    'debt': 90000,
 }
 
 
@@ -58,30 +65,41 @@ def compute_statements(base, levers):
     eff = EFFICIENCY_TABLE[levers['efficiency']]
     revenue = levers['revenue']
     capex = levers['capex']
-    depreciation = levers['depreciation']
+    useful_life = levers['useful_life']
+    debt = levers['debt']
+
+    # Straight-line depreciation on everything owned this year: the opening
+    # Gross PP&E plus this year's CapEx (bought at the start of the year).
+    gross_ppe_end = base['gross_ppe_boy'] + capex
+    depreciation = gross_ppe_end / useful_life
 
     cogs = revenue * eff['cogs_pct']
     gross_profit = revenue - cogs
     opex = revenue * eff['opex_pct']
     operating_income = gross_profit - opex
-    ebt = operating_income - depreciation
+    ebit = operating_income - depreciation
+    interest = debt * INTEREST_RATE
+    ebt = ebit - interest
     tax = ebt * TAX_RATE
     net_income = ebt - tax
 
     cfo = net_income + depreciation
     cfi = -capex
-    cff = -base['dividends']
+    # Borrowing brings cash in, repaying sends it out - this is what keeps
+    # the balance sheet balanced when the Debt lever moves.
+    debt_change = debt - base['long_term_debt_boy']
+    cff = debt_change - base['dividends']
     net_change_in_cash = cfo + cfi + cff
     cash_end = base['cash_boy'] + net_change_in_cash
 
-    gross_ppe_end = base['gross_ppe_boy'] + capex
     accum_dep_end = base['accum_dep_boy'] + depreciation
     net_ppe_end = gross_ppe_end - accum_dep_end
 
     total_assets = cash_end + base['receivables_inventory'] + net_ppe_end
     retained_earnings_end = base['retained_earnings_boy'] + net_income - base['dividends']
     total_equity = base['common_stock'] + retained_earnings_end
-    total_liab_and_equity = base['liabilities'] + total_equity
+    total_liabilities = debt
+    total_liab_and_equity = total_liabilities + total_equity
 
     return {
         'income_statement': {
@@ -91,6 +109,9 @@ def compute_statements(base, levers):
             'opex': opex,
             'operating_income': operating_income,
             'depreciation': depreciation,
+            'useful_life': useful_life,
+            'ebit': ebit,
+            'interest': interest,
             'ebt': ebt,
             'tax': tax,
             'net_income': net_income,
@@ -101,8 +122,11 @@ def compute_statements(base, levers):
             'gross_ppe': gross_ppe_end,
             'accum_dep': accum_dep_end,
             'net_ppe': net_ppe_end,
+            # Years of depreciation left at this year's rate.
+            'remaining_life': net_ppe_end / depreciation,
             'total_assets': total_assets,
-            'liabilities': base['liabilities'],
+            'long_term_debt': debt,
+            'total_liabilities': total_liabilities,
             'common_stock': base['common_stock'],
             'retained_earnings': retained_earnings_end,
             'total_equity': total_equity,
@@ -114,6 +138,7 @@ def compute_statements(base, levers):
             'cfo': cfo,
             'capex': capex,
             'cfi': cfi,
+            'debt_change': debt_change,
             'dividends': base['dividends'],
             'cff': cff,
             'net_change_in_cash': net_change_in_cash,
@@ -136,6 +161,10 @@ def workspace(request):
         'efficiency_table_json': json.dumps(EFFICIENCY_TABLE),
         'tax_rate_json': json.dumps(TAX_RATE),
         'tax_rate_pct': round(TAX_RATE * 100),
+        'interest_rate_pct': round(INTEREST_RATE * 100),
+        'base_gross_ppe': BASE['gross_ppe_boy'],
+        'base_accum_dep': BASE['accum_dep_boy'],
+        'prior_years_used': BASE['accum_dep_boy'] / statements['income_statement']['depreciation'],
         'levers': DEFAULT_LEVERS,
         'statements': statements,
         'current_efficiency': {
